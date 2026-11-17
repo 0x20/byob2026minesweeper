@@ -1,0 +1,77 @@
+name: Deploy server
+
+# Copies the game server to the VM and restarts it.
+# Restarting starts a fresh round, since the board lives in memory.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - server.py
+      - requirements.txt
+      - static/**
+      - .github/workflows/deploy.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      APP_DIR: /opt/minesweeper/app
+      VENV: /opt/minesweeper/venv
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          # Secrets pasted from Windows can carry CR line endings, which break both files.
+          printf '%s\n' "$DEPLOY_SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
+
+          # The VM's address is the first field of the known_hosts line. Reading
+          # it from there keeps the address out of this public file and its logs.
+          host=$(grep -v '^#' ~/.ssh/known_hosts | cut -d' ' -f1 | head -n 1)
+          echo "::add-mask::$host"
+
+          cat > ~/.ssh/config <<EOF
+          Host vm
+            HostName $host
+            User deploy
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            BatchMode yes
+            ConnectTimeout 15
+          EOF
+
+      - name: Copy files
+        run: |
+          rsync -az --delete static/ "vm:$APP_DIR/static/"
+          rsync -az server.py requirements.txt "vm:$APP_DIR/"
+
+      - name: Install dependencies and restart
+        run: |
+          ssh vm "$VENV/bin/pip install -q --disable-pip-version-check -r $APP_DIR/requirements.txt"
+          ssh vm "sudo systemctl restart minesweeper"
+
+      - name: Check the server answers
+        run: |
+          ssh vm 'for i in $(seq 10); do
+                    curl -fsS -o /dev/null http://127.0.0.1:8000/api/state && exit 0
+                    sleep 1
+                  done
+                  echo "server did not come up" >&2
+                  exit 1'
