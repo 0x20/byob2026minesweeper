@@ -122,7 +122,8 @@
   btnReset.addEventListener("click", async () => {
     setBusy(true);
     try {
-      await api("/api/reset", "POST");
+      const r = await api("/api/reset", "POST");
+      if (r.error) return load(); // someone else already started a new round
       show("RESET", "FRESH BOARD ON THE WALL. GO SCAN.");
       $("status").textContent = "BOARD READY";
     } catch (_) {

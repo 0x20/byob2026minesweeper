@@ -43,6 +43,16 @@ Board size and difficulty:
 python server.py --cols 12 --rows 7 --mines 14
 ```
 
+## Admin
+
+Set `ADMIN_PASSWORD` before starting the server, then open `/admin` on your
+phone and log in. The page shows the live board status and a NEW GAME button
+that works at any time.
+
+With a password set, nobody else can reset a round that is in progress: the
+phone page and the projector keys only reset a finished board. Without one,
+`/admin` is disabled and reset stays open to everyone.
+
 ## Rules
 
 - Scanning a hidden tile opens a page on the phone with two buttons: REVEAL or FLAG.
@@ -71,4 +81,6 @@ python server.py --cols 12 --rows 7 --mines 14
 | `GET /api/state`        | board state (polled by the projector)     |
 | `POST /api/reveal/<id>` | reveal a tile                             |
 | `POST /api/flag/<id>`   | toggle a flag                             |
-| `POST /api/reset`       | new round                                 |
+| `POST /api/reset`       | new round (admin only while one is live)  |
+| `GET /admin`            | admin page                                |
+| `POST /api/admin/login` | log in with the admin password            |

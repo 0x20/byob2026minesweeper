@@ -34,7 +34,8 @@
       const card = document.createElement("div");
       card.className = "card";
       const img = document.createElement("img");
-      img.src = `/qr/${i}.svg`;
+      // The QR encodes base_url and is cached for a day, so key the URL on it.
+      img.src = `/qr/${i}.svg?b=${encodeURIComponent(cfg.base_url)}`;
       img.alt = "";
       img.draggable = false;
       card.appendChild(img);

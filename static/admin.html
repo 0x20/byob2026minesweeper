@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="robots" content="noindex">
+  <title>MINESWEEPER ADMIN</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="phone">
+  <header class="bar">
+    <div class="brand">
+      <span class="mark"></span>
+      <span class="title">MINESWEEPER</span>
+    </div>
+    <span class="dim">ADMIN</span>
+  </header>
+
+  <main class="result">
+    <div class="big word" id="big">…</div>
+    <div class="msg" id="msg">LOADING</div>
+
+    <form class="stack" id="login" hidden>
+      <input class="field" id="password" type="password" placeholder="password"
+             autocomplete="current-password" required>
+      <button class="btn primary" id="btn-login" type="submit">LOG IN</button>
+    </form>
+
+    <div class="stack" id="panel" hidden>
+      <button class="btn primary" id="btn-reset">NEW GAME</button>
+      <button class="btn quiet" id="btn-logout">LOG OUT</button>
+    </div>
+  </main>
+
+  <footer class="bar foot">
+    <span class="dim" id="f-left">&nbsp;</span>
+    <span class="dim" id="f-right">&nbsp;</span>
+  </footer>
+
+  <script src="/static/admin.js"></script>
+</body>
+</html>

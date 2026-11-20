@@ -9,11 +9,15 @@ Stdlib only, except the `qrcode` package for QR code SVGs.
     python server.py --cols 10 --rows 6 --mines 10
 """
 import argparse
+import hashlib
+import hmac
 import json
+import os
 import random
 import socket
 import threading
 import time
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -88,9 +92,13 @@ class Game:
         self.last_event = None
         self._bump()
 
-    def reset(self):
+    def reset(self, force=True):
+        """Start a new round. Without force, a round in progress is left alone."""
         with self.lock:
+            if not force and self.status == "playing":
+                return False
             self._reset_unlocked()
+            return True
 
     def _place_mines(self, safe):
         # First scan is always safe, and always opens an area.
@@ -247,9 +255,68 @@ class QRCache:
 
 
 # ----------------------------------------------------------------------------
+# Admin
+# ----------------------------------------------------------------------------
+class Admin:
+    """Password login for /admin. Disabled when no password is configured.
+
+    A session is a signed expiry time, so it needs no server-side storage and
+    survives a restart. Changing the password invalidates every session.
+    """
+    COOKIE = "admin"
+    TTL = 7 * 24 * 3600
+    MAX_FAILURES = 8        # per WINDOW, across all clients
+    WINDOW = 60
+
+    def __init__(self, password):
+        self._key = password.encode("utf-8") if password else None
+        self._failures = []
+        self._lock = threading.Lock()
+
+    @property
+    def enabled(self):
+        return self._key is not None
+
+    def _sign(self, exp):
+        return hmac.new(self._key, str(exp).encode(), hashlib.sha256).hexdigest()
+
+    def login(self, password):
+        """Returns a session token, or None with a reason: 'bad' or 'locked'."""
+        if not self.enabled:
+            return None, "bad"
+        now = time.time()
+        with self._lock:
+            self._failures = [t for t in self._failures if now - t < self.WINDOW]
+            if len(self._failures) >= self.MAX_FAILURES:
+                return None, "locked"
+            if not hmac.compare_digest(str(password).encode("utf-8"), self._key):
+                self._failures.append(now)
+                return None, "bad"
+        exp = int(now) + self.TTL
+        return f"{exp}.{self._sign(exp)}", None
+
+    def valid(self, token):
+        if not self.enabled or not token:
+            return False
+        exp, _, sig = token.partition(".")
+        if not exp.isdigit() or int(exp) < time.time():
+            return False
+        return hmac.compare_digest(sig, self._sign(int(exp)))
+
+
+# ----------------------------------------------------------------------------
 # HTTP
 # ----------------------------------------------------------------------------
-def make_handler(game: Game, qrs: QRCache):
+MAX_BODY = 4096
+
+
+def make_handler(game: Game, qrs: QRCache, admin: Admin):
+    secure = "; Secure" if qrs.base_url.startswith("https://") else ""
+
+    def session_cookie(token, max_age):
+        return (f"{Admin.COOKIE}={token}; Path=/; Max-Age={max_age}; "
+                f"HttpOnly; SameSite=Strict{secure}")
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "QRMinesweeper/1.0"
 
@@ -260,17 +327,24 @@ def make_handler(game: Game, qrs: QRCache):
             super().log_message(fmt, *args)
 
         # -- helpers ------------------------------------------------------------
-        def send_bytes(self, status, body, ctype, cache=False):
+        def send_bytes(self, status, body, ctype, cache=False, headers=()):
             self.send_response(status)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control",
                              "public, max-age=86400" if cache else "no-store")
+            for name, value in headers:
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(body)
 
-        def send_json(self, obj, status=200):
-            self.send_bytes(status, json.dumps(obj).encode("utf-8"), MIME[".json"])
+        def send_json(self, obj, status=200, headers=()):
+            self.send_bytes(status, json.dumps(obj).encode("utf-8"), MIME[".json"],
+                            headers=headers)
+
+        def is_admin(self):
+            morsel = SimpleCookie(self.headers.get("Cookie", "")).get(Admin.COOKIE)
+            return admin.valid(morsel.value if morsel else None)
 
         def send_file(self, rel):
             path = (STATIC / rel).resolve()
@@ -293,6 +367,8 @@ def make_handler(game: Game, qrs: QRCache):
 
             if path == "/":
                 return self.send_file("index.html")
+            if path.lower() == "/admin":
+                return self.send_file("admin.html")
             if parts[0] == "static" and len(parts) == 2:
                 return self.send_file(parts[1])
             if parts[0] == "t" and len(parts) == 2:
@@ -316,19 +392,47 @@ def make_handler(game: Game, qrs: QRCache):
                         "cols": game.cols, "rows": game.rows,
                         "mines": game.mine_count, "base_url": qrs.base_url,
                     })
+                if parts[1:] == ["admin", "session"]:
+                    return self.send_json({"enabled": admin.enabled,
+                                           "authed": self.is_admin()})
             self.send_json({"error": "not found"}, 404)
 
         def do_POST(self):
             path = urlparse(self.path).path.rstrip("/")
             parts = path.lower().split("/")[1:]
-            length = int(self.headers.get("Content-Length") or 0)
-            if length:
-                self.rfile.read(length)
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = -1
+            if not 0 <= length <= MAX_BODY:
+                self.close_connection = True
+                return self.send_json({"error": "bad request"}, 400)
+            body = self.rfile.read(length) if length else b""
 
             if parts[:1] != ["api"]:
                 return self.send_json({"error": "not found"}, 404)
+            if parts[1:] == ["admin", "login"]:
+                try:
+                    password = json.loads(body).get("password", "")
+                except (ValueError, AttributeError):
+                    password = ""
+                token, why = admin.login(password)
+                if token:
+                    cookie = session_cookie(token, Admin.TTL)
+                    return self.send_json({"ok": True},
+                                          headers=[("Set-Cookie", cookie)])
+                if why == "locked":
+                    return self.send_json({"error": "too many attempts"}, 429)
+                return self.send_json({"error": "wrong password"}, 401)
+            if parts[1:] == ["admin", "logout"]:
+                return self.send_json({"ok": True},
+                                      headers=[("Set-Cookie", session_cookie("", 0))])
             if parts[1:] == ["reset"]:
-                game.reset()
+                # Anyone may start a new round once one has ended. With an admin
+                # password set, only the admin may cut a live round short.
+                force = self.is_admin() or not admin.enabled
+                if not game.reset(force=force):
+                    return self.send_json({"error": "round in progress"}, 403)
                 return self.send_json({"ok": True})
             if len(parts) == 3 and parts[1] in ("reveal", "flag"):
                 i = self.tile_id(parts[2])
@@ -371,13 +475,19 @@ def main():
 
     game = Game(args.cols, args.rows, args.mines)
     qrs = QRCache(base_url)
+    admin = Admin(os.environ.get("ADMIN_PASSWORD"))
 
-    httpd = ThreadingHTTPServer(("0.0.0.0", args.port), make_handler(game, qrs))
+    httpd = ThreadingHTTPServer(("0.0.0.0", args.port),
+                                make_handler(game, qrs, admin))
     httpd.daemon_threads = True
 
     print(f"board      : {game.cols} x {game.rows}, {game.mine_count} mines")
     print(f"projector  : http://localhost:{args.port}/")
     print(f"qr codes   : {base_url}/t/<id>")
+    if admin.enabled:
+        print(f"admin      : {qrs.base_url}/admin")
+    else:
+        print("admin      : disabled, anyone can reset (set ADMIN_PASSWORD)")
     print("ctrl+c to stop")
     try:
         httpd.serve_forever()

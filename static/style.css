@@ -287,3 +287,33 @@ body.phone.boom .btn { background: var(--fg); color: var(--bg); border-color: va
 .actions .btn.primary { background: var(--fg); color: var(--bg); }
 .actions .btn.primary:hover { background: var(--bg); color: var(--fg); }
 .btn:disabled { opacity: .4; pointer-events: none; }
+
+/* ---------------------------------------------------------------- admin */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 28px;
+  width: 100%;
+  max-width: 360px;
+}
+.stack[hidden] { display: none; }
+.stack .btn { margin-top: 0; padding: 18px 0; font-size: 15px; font-weight: 700; }
+.stack .btn.primary { background: var(--fg); color: var(--bg); }
+.stack .btn.primary:hover { background: var(--bg); color: var(--fg); }
+.stack .btn.quiet { border-color: var(--dim); color: var(--dim); font-weight: 400; }
+
+.field {
+  font: inherit;
+  font-size: 16px; /* below 16px, iOS zooms the page on focus */
+  letter-spacing: inherit;
+  text-transform: none;
+  text-align: center;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--fg);
+  border-radius: 0;
+  padding: 16px;
+  user-select: text;
+}
+.field:focus { outline: 2px solid var(--fg); outline-offset: 2px; }
