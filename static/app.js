@@ -102,18 +102,21 @@
     }
 
     // stats
-    $("s-mines").textContent = pad(Math.max(0, st.mines - st.flags), 2);
-    $("s-flags").textContent = pad(st.flags, 2);
+    $("s-flags").textContent = `${pad(st.flags, 2)}/${pad(st.mines, 2)}`;
+    $("s-flags").classList.toggle("warn", st.flags > st.mines);
     $("s-open").textContent = `${pad(st.revealed, 3)}/${pad(st.cols * st.rows - st.mines, 3)}`;
     $("f-game").textContent = `GAME ${pad(st.games, 2)}`;
-    const label = { ready: "READY", playing: "LIVE", won: "CLEARED", lost: "DETONATED" }[st.status];
+    // A round is lost by a mine, or by flagging everything left with a flag wrong.
+    const failed = st.status === "lost" && st.reason === "flags";
+    const label = failed ? "FAILED"
+      : { ready: "READY", playing: "LIVE", won: "CLEARED", lost: "DETONATED" }[st.status];
     $("s-status").textContent = label;
 
     // status transitions
     document.body.classList.toggle("lost", st.status === "lost");
     document.body.classList.toggle("won", st.status === "won");
     if (st.status === "lost" || st.status === "won") {
-      $("ov-k").textContent = st.status === "lost" ? "MINE HIT" : "ALL CLEAR";
+      $("ov-k").textContent = failed ? "WRONG FLAGS" : st.status === "lost" ? "MINE HIT" : "ALL CLEAR";
       $("ov-v").textContent = label;
       overlay.hidden = false; // its last line is the countdown, kept fresh by tick()
       if (!first && prev.status !== st.status && st.status === "lost") {

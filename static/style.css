@@ -64,6 +64,7 @@ html, body {
 .stat { display: flex; flex-direction: column; line-height: 1.1; }
 .stat .k { font-size: 10px; color: var(--dim); }
 .stat .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat .v.warn { background: var(--fg); color: var(--bg); padding: 0 6px; margin: 0 -6px; } /* more flags than mines */
 
 .btn {
   font: inherit;

@@ -43,8 +43,8 @@ Board size and difficulty:
 python server.py --cols 12 --rows 7 --mines 14
 ```
 
-A finished board stays up for 30 seconds, then a new round starts on its own.
-Change that with `--restart-after 60`, or `--restart-after 0` to turn it off.
+A finished board stays up for 10 seconds, then a new round starts on its own.
+Change that with `--restart-after 30`, or `--restart-after 0` to turn it off.
 
 ## Admin
 
@@ -62,6 +62,10 @@ Without a password, `/admin` is disabled and nobody can reset by hand.
 - The first reveal of a round is always safe.
 - Zero tiles flood open their neighbours, as usual.
 - A mine ends the round. Revealing every safe tile wins it.
+- A flagged tile shows a hollow square instead of its QR code, so it cannot be
+  scanned again. Flag carefully.
+- If every tile that is left is flagged and one of those flags is wrong, the
+  round is lost: the wall says FAILED and strikes through the wrong flags.
 - After a round, the wall counts down and a new round starts by itself.
 
 ## Stack

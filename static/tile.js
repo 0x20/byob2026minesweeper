@@ -51,7 +51,7 @@
 
     if (info.over) {
       const lost = info.status === "lost";
-      return show(lost ? "DETONATED" : "CLEARED",
+      return show(endWord(info.status, info.reason),
                   "THIS ROUND IS OVER." + nextRound(info.restart_in),
                   { boom: lost });
     }
@@ -68,12 +68,27 @@
     }
   }
 
+  // A round is lost by hitting a mine, or by flagging every tile that is left
+  // while some of those flags are wrong.
+  function endWord(status, reason) {
+    if (status === "won") return "CLEARED";
+    return reason === "flags" ? "FAILED" : "DETONATED";
+  }
+
+  function showFailed(restartIn) {
+    $("status").textContent = "BOARD FAILED";
+    show("FAILED", "EVERY TILE LEFT IS FLAGGED, AND NOT EVERY FLAG IS A MINE." + nextRound(restartIn),
+         { boom: true });
+  }
+
   function renderReveal(r) {
     $("status").textContent = `BOARD ${statusLabel[r.status] || ""}`;
     switch (r.result) {
       case "boom":
         return show("BOOM", "THAT WAS A MINE. GAME OVER." + nextRound(r.restart_in),
                     { boom: true });
+      case "fail":
+        return showFailed(r.restart_in);
       case "win":
         return show("CLEARED", "LAST SAFE TILE. THE BOARD IS CLEAN." + nextRound(r.restart_in));
       case "ok":
@@ -83,7 +98,7 @@
       case "already":
         return show(String(r.count), "ALREADY OPEN. SCAN ANOTHER TILE.", { number: true });
       case "over":
-        return show(r.status === "won" ? "CLEARED" : "DETONATED",
+        return show(endWord(r.status, r.reason),
                     "THIS ROUND IS OVER." + nextRound(r.restart_in),
                     { boom: r.status === "lost" });
       default:
@@ -118,6 +133,7 @@
     try {
       const r = await api(`/api/flag/${id}`, "POST");
       if (!r.changed) return load(); // tile got opened or round ended meanwhile
+      if (r.result === "fail") return showFailed(r.restart_in); // that was the last tile
       if (r.flagged) {
         show("FLAGGED", "MARKED ON THE WALL. CHANGED YOUR MIND?", { choose: true, flagged: true });
       } else {

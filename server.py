@@ -42,7 +42,7 @@ MIME = {
 # Game state
 # ----------------------------------------------------------------------------
 class Game:
-    def __init__(self, cols, rows, mine_count, restart_after=30):
+    def __init__(self, cols, rows, mine_count, restart_after=10):
         self.cols = cols
         self.rows = rows
         self.mine_count = max(1, min(mine_count, cols * rows - 9))
@@ -90,6 +90,7 @@ class Game:
         self.status = "ready"  # ready | playing | won | lost
         self.started_at = None
         self.ended_at = None
+        self.end_reason = None  # why a lost round was lost: "mine" or "flags"
         self.last_event = None
         self._bump()
 
@@ -114,6 +115,26 @@ class Game:
         left = self.restart_after - (time.time() - self.ended_at)
         return round(max(0.0, left), 1)
 
+    def _flagged_out(self):
+        """End the round as lost once nothing is left to scan. Call with the
+        lock held, after a move.
+
+        A flagged tile shows no QR code, so when every unopened tile carries a
+        flag nobody can make another move. Had those flags all been right, the
+        last reveal would already have won the round, so at least one is wrong.
+        """
+        if self.status in ("won", "lost") or len(self.revealed) + len(self.flags) < self.size:
+            return False
+        if self.status == "ready":  # every tile was flagged before the first reveal
+            self.mines = set(random.sample(range(self.size), self.mine_count))
+            self.started_at = time.time()
+            self.games_played += 1
+        self.status = "lost"
+        self.end_reason = "flags"
+        self.ended_at = time.time()
+        self._bump({"type": "fail"})
+        return True
+
     def _place_mines(self, safe):
         # First scan is always safe, and always opens an area.
         forbidden = {safe, *self.neighbors(safe)}
@@ -125,7 +146,8 @@ class Game:
             self._auto_restart()
             base = {"id": i, "coord": self.coord(i), "status": self.status}
             if self.status in ("won", "lost"):
-                return {**base, "result": "over", "restart_in": self._restart_in()}
+                return {**base, "result": "over", "reason": self.end_reason,
+                        "restart_in": self._restart_in()}
             if i in self.revealed:
                 return {**base, "result": "already", "count": self.count(i)}
 
@@ -141,6 +163,7 @@ class Game:
                 self.revealed.add(i)
                 self.exploded = i
                 self.status = "lost"
+                self.end_reason = "mine"
                 self.ended_at = time.time()
                 self._bump({"type": "boom", "id": i})
                 return {**base, "result": "boom", "status": self.status,
@@ -168,6 +191,10 @@ class Game:
                         "restart_in": self._restart_in()}
 
             self._bump({"type": "open", "id": i, "opened": opened})
+            if self._flagged_out():
+                return {**base, "result": "fail", "count": self.count(i),
+                        "opened": len(opened), "status": self.status,
+                        "restart_in": self._restart_in()}
             return {**base, "result": "ok", "count": self.count(i),
                     "opened": len(opened), "status": self.status}
 
@@ -183,7 +210,7 @@ class Game:
                 state = "hidden"
             return {
                 "id": i, "coord": self.coord(i), "status": self.status,
-                "state": state, "over": over,
+                "state": state, "over": over, "reason": self.end_reason,
                 "count": self.count(i) if state == "open" else None,
                 "restart_in": self._restart_in(),
             }
@@ -198,7 +225,11 @@ class Game:
             else:
                 self.flags.add(i)
             self._bump({"type": "flag", "id": i})
-            return {"id": i, "flagged": i in self.flags, "changed": True}
+            out = {"id": i, "flagged": i in self.flags, "changed": True}
+            if self._flagged_out():
+                out.update(result="fail", status=self.status,
+                           restart_in=self._restart_in())
+            return out
 
     # -- serialisation --------------------------------------------------------
     def state(self):
@@ -233,6 +264,7 @@ class Game:
                 "flags": len(self.flags),
                 "revealed": len(self.revealed),
                 "status": self.status,
+                "reason": self.end_reason,
                 "elapsed": round(elapsed, 1),
                 "restart_in": self._restart_in(),
                 "games": self.games_played,
@@ -484,9 +516,9 @@ def main():
     ap.add_argument("--rows", type=int, default=6)
     ap.add_argument("--mines", type=int, default=10)
     ap.add_argument("--port", type=int, default=8000)
-    ap.add_argument("--restart-after", type=float, default=30, metavar="SECONDS",
+    ap.add_argument("--restart-after", type=float, default=10, metavar="SECONDS",
                     help="how long a finished board stays up before a new round "
-                         "starts (default: 30, 0 = never)")
+                         "starts (default: 10, 0 = never)")
     ap.add_argument("--host", default=None,
                     help="address/hostname phones use to reach this machine "
                          "(default: auto-detected LAN IP)")

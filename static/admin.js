@@ -56,7 +56,8 @@
 
   function render(st) {
     state = st;
-    big.textContent = statusLabel[st.status] || "?";
+    big.textContent = st.status === "lost" && st.reason === "flags"
+      ? "FAILED" : statusLabel[st.status] || "?";
     const safe = st.cols * st.rows - st.mines;
     msg.textContent = `TIME ${fmtTime(st.elapsed)} · OPEN ${st.revealed}/${safe} · FLAGS ${st.flags}`;
     $("f-left").textContent = `${st.cols} X ${st.rows} · ${st.mines} MINES`;
