@@ -10,10 +10,10 @@
   const actions = $("actions");
   const btnReveal = $("btn-reveal");
   const btnFlag = $("btn-flag");
-  const btnReset = $("btn-reset");
 
   const statusLabel = { ready: "READY", playing: "LIVE", won: "CLEARED", lost: "DETONATED" };
   let coord = "";
+  let reloadTimer = null;
 
   function show(word, text, opts = {}) {
     big.textContent = word;
@@ -22,12 +22,20 @@
     document.body.classList.toggle("boom", !!opts.boom);
     actions.hidden = !opts.choose;
     btnFlag.textContent = opts.flagged ? "UNFLAG" : "FLAG";
-    btnReset.hidden = !opts.reset;
     setBusy(false);
   }
 
   function setBusy(b) {
-    for (const el of [btnReveal, btnFlag, btnReset]) el.disabled = b;
+    for (const el of [btnReveal, btnFlag]) el.disabled = b;
+  }
+
+  // A finished round restarts on its own. Say when, and reload this page then
+  // so the tile can be played in the new round.
+  function nextRound(restartIn) {
+    clearTimeout(reloadTimer);
+    if (restartIn == null) return "";
+    reloadTimer = setTimeout(load, restartIn * 1000 + 500);
+    return ` NEXT ROUND IN ${Math.ceil(restartIn)} S.`;
   }
 
   async function api(path, method = "GET") {
@@ -44,8 +52,8 @@
     if (info.over) {
       const lost = info.status === "lost";
       return show(lost ? "DETONATED" : "CLEARED",
-                  "THIS ROUND IS OVER. START A NEW ONE?",
-                  { reset: true, boom: lost });
+                  "THIS ROUND IS OVER." + nextRound(info.restart_in),
+                  { boom: lost });
     }
     switch (info.state) {
       case "open":
@@ -64,9 +72,10 @@
     $("status").textContent = `BOARD ${statusLabel[r.status] || ""}`;
     switch (r.result) {
       case "boom":
-        return show("BOOM", "THAT WAS A MINE. GAME OVER.", { boom: true, reset: true });
+        return show("BOOM", "THAT WAS A MINE. GAME OVER." + nextRound(r.restart_in),
+                    { boom: true });
       case "win":
-        return show("CLEARED", "LAST SAFE TILE. THE BOARD IS CLEAN.", { reset: true });
+        return show("CLEARED", "LAST SAFE TILE. THE BOARD IS CLEAN." + nextRound(r.restart_in));
       case "ok":
         return r.count === 0
           ? show("CLEAR", `NO MINES NEARBY. OPENED ${r.opened} TILE${r.opened === 1 ? "" : "S"}.`)
@@ -75,8 +84,8 @@
         return show(String(r.count), "ALREADY OPEN. SCAN ANOTHER TILE.", { number: true });
       case "over":
         return show(r.status === "won" ? "CLEARED" : "DETONATED",
-                    "THIS ROUND IS OVER. START A NEW ONE?",
-                    { reset: true, boom: r.status === "lost" });
+                    "THIS ROUND IS OVER." + nextRound(r.restart_in),
+                    { boom: r.status === "lost" });
       default:
         return show("?", "UNEXPECTED REPLY");
     }
@@ -91,7 +100,7 @@
       if (info.error) return show("?", "UNKNOWN TILE");
       renderInfo(info);
     } catch (_) {
-      show("OFFLINE", "COULD NOT REACH THE SERVER. SAME WIFI?");
+      show("OFFLINE", "COULD NOT REACH THE SERVER.");
     }
   }
 
@@ -119,17 +128,6 @@
     }
   });
 
-  btnReset.addEventListener("click", async () => {
-    setBusy(true);
-    try {
-      const r = await api("/api/reset", "POST");
-      if (r.error) return load(); // someone else already started a new round
-      show("RESET", "FRESH BOARD ON THE WALL. GO SCAN.");
-      $("status").textContent = "BOARD READY";
-    } catch (_) {
-      show("OFFLINE", "COULD NOT REACH THE SERVER.");
-    }
-  });
 
   load();
 })();

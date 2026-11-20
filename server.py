@@ -42,10 +42,11 @@ MIME = {
 # Game state
 # ----------------------------------------------------------------------------
 class Game:
-    def __init__(self, cols, rows, mine_count):
+    def __init__(self, cols, rows, mine_count, restart_after=30):
         self.cols = cols
         self.rows = rows
         self.mine_count = max(1, min(mine_count, cols * rows - 9))
+        self.restart_after = restart_after  # seconds a finished board stays up; 0 = forever
         self.lock = threading.Lock()
         self.version = 0
         self.games_played = 0
@@ -92,13 +93,26 @@ class Game:
         self.last_event = None
         self._bump()
 
-    def reset(self, force=True):
-        """Start a new round. Without force, a round in progress is left alone."""
+    def reset(self):
         with self.lock:
-            if not force and self.status == "playing":
-                return False
             self._reset_unlocked()
-            return True
+
+    def _auto_restart(self):
+        """Replace a finished board with a fresh one once it has been up long
+        enough. Call with the lock held, before reading or changing the board.
+
+        There is no timer: every request checks, and the projector polls
+        several times a second, so the restart lands on time.
+        """
+        if self._restart_in() == 0:
+            self._reset_unlocked()
+
+    def _restart_in(self):
+        """Seconds until a finished board restarts, or None if it will not."""
+        if not self.restart_after or self.ended_at is None:
+            return None
+        left = self.restart_after - (time.time() - self.ended_at)
+        return round(max(0.0, left), 1)
 
     def _place_mines(self, safe):
         # First scan is always safe, and always opens an area.
@@ -108,9 +122,10 @@ class Game:
 
     def reveal(self, i):
         with self.lock:
+            self._auto_restart()
             base = {"id": i, "coord": self.coord(i), "status": self.status}
             if self.status in ("won", "lost"):
-                return {**base, "result": "over"}
+                return {**base, "result": "over", "restart_in": self._restart_in()}
             if i in self.revealed:
                 return {**base, "result": "already", "count": self.count(i)}
 
@@ -128,7 +143,8 @@ class Game:
                 self.status = "lost"
                 self.ended_at = time.time()
                 self._bump({"type": "boom", "id": i})
-                return {**base, "result": "boom", "status": self.status}
+                return {**base, "result": "boom", "status": self.status,
+                        "restart_in": self._restart_in()}
 
             # flood fill from zero tiles
             opened = []
@@ -148,7 +164,8 @@ class Game:
                 self.ended_at = time.time()
                 self._bump({"type": "win", "id": i})
                 return {**base, "result": "win", "count": self.count(i),
-                        "opened": len(opened), "status": self.status}
+                        "opened": len(opened), "status": self.status,
+                        "restart_in": self._restart_in()}
 
             self._bump({"type": "open", "id": i, "opened": opened})
             return {**base, "result": "ok", "count": self.count(i),
@@ -156,6 +173,7 @@ class Game:
 
     def tile_info(self, i):
         with self.lock:
+            self._auto_restart()
             over = self.status in ("won", "lost")
             if i in self.revealed:
                 state = "mine" if i in self.mines else "open"
@@ -167,10 +185,12 @@ class Game:
                 "id": i, "coord": self.coord(i), "status": self.status,
                 "state": state, "over": over,
                 "count": self.count(i) if state == "open" else None,
+                "restart_in": self._restart_in(),
             }
 
     def toggle_flag(self, i):
         with self.lock:
+            self._auto_restart()
             if self.status in ("won", "lost") or i in self.revealed:
                 return {"id": i, "flagged": i in self.flags, "changed": False}
             if i in self.flags:
@@ -184,6 +204,7 @@ class Game:
     def state(self):
         """Tile codes: h hidden, f flag, 0-8 open, m mine, x exploded, w wrong flag."""
         with self.lock:
+            self._auto_restart()
             tiles = []
             over = self.status in ("won", "lost")
             for i in range(self.size):
@@ -213,6 +234,7 @@ class Game:
                 "revealed": len(self.revealed),
                 "status": self.status,
                 "elapsed": round(elapsed, 1),
+                "restart_in": self._restart_in(),
                 "games": self.games_played,
                 "tiles": tiles,
                 "event": self.last_event,
@@ -428,11 +450,11 @@ def make_handler(game: Game, qrs: QRCache, admin: Admin):
                 return self.send_json({"ok": True},
                                       headers=[("Set-Cookie", session_cookie("", 0))])
             if parts[1:] == ["reset"]:
-                # Anyone may start a new round once one has ended. With an admin
-                # password set, only the admin may cut a live round short.
-                force = self.is_admin() or not admin.enabled
-                if not game.reset(force=force):
-                    return self.send_json({"error": "round in progress"}, 403)
+                # Finished rounds restart on their own, so a manual reset is only
+                # ever the admin's. With no password set, nobody can do it.
+                if not self.is_admin():
+                    return self.send_json({"error": "admin only"}, 403)
+                game.reset()
                 return self.send_json({"ok": True})
             if len(parts) == 3 and parts[1] in ("reveal", "flag"):
                 i = self.tile_id(parts[2])
@@ -462,6 +484,9 @@ def main():
     ap.add_argument("--rows", type=int, default=6)
     ap.add_argument("--mines", type=int, default=10)
     ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--restart-after", type=float, default=30, metavar="SECONDS",
+                    help="how long a finished board stays up before a new round "
+                         "starts (default: 30, 0 = never)")
     ap.add_argument("--host", default=None,
                     help="address/hostname phones use to reach this machine "
                          "(default: auto-detected LAN IP)")
@@ -473,7 +498,7 @@ def main():
     host = args.host or lan_ip()
     base_url = args.base_url or f"http://{host}:{args.port}"
 
-    game = Game(args.cols, args.rows, args.mines)
+    game = Game(args.cols, args.rows, args.mines, max(0, args.restart_after))
     qrs = QRCache(base_url)
     admin = Admin(os.environ.get("ADMIN_PASSWORD"))
 
@@ -484,10 +509,14 @@ def main():
     print(f"board      : {game.cols} x {game.rows}, {game.mine_count} mines")
     print(f"projector  : http://localhost:{args.port}/")
     print(f"qr codes   : {base_url}/t/<id>")
+    if game.restart_after:
+        print(f"new round  : {game.restart_after:g} s after one ends")
+    else:
+        print("new round  : only by admin reset")
     if admin.enabled:
         print(f"admin      : {qrs.base_url}/admin")
     else:
-        print("admin      : disabled, anyone can reset (set ADMIN_PASSWORD)")
+        print("admin      : disabled, no manual reset (set ADMIN_PASSWORD)")
     print("ctrl+c to stop")
     try:
         httpd.serve_forever()

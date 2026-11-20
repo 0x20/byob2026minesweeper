@@ -277,6 +277,7 @@ body.phone.boom .btn { background: var(--fg); color: var(--bg); border-color: va
   width: 100%;
   max-width: 360px;
 }
+.actions[hidden] { display: none; } /* display: flex above would override [hidden] */
 .actions .btn {
   flex: 1;
   margin-top: 0;

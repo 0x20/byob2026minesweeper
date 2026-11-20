@@ -43,15 +43,18 @@ Board size and difficulty:
 python server.py --cols 12 --rows 7 --mines 14
 ```
 
+A finished board stays up for 30 seconds, then a new round starts on its own.
+Change that with `--restart-after 60`, or `--restart-after 0` to turn it off.
+
 ## Admin
 
 Set `ADMIN_PASSWORD` before starting the server, then open `/admin` on your
 phone and log in. The page shows the live board status and a NEW GAME button
 that works at any time.
 
-With a password set, nobody else can reset a round that is in progress: the
-phone page and the projector keys only reset a finished board. Without one,
-`/admin` is disabled and reset stays open to everyone.
+That button is the only manual reset. Players cannot reset the board, and the
+projector has no reset key, since its keyboard is within reach of visitors.
+Without a password, `/admin` is disabled and nobody can reset by hand.
 
 ## Rules
 
@@ -59,8 +62,7 @@ phone page and the projector keys only reset a finished board. Without one,
 - The first reveal of a round is always safe.
 - Zero tiles flood open their neighbours, as usual.
 - A mine ends the round. Revealing every safe tile wins it.
-- After a round, the phone page offers a NEW GAME button. On the projector, `R`
-  resets a finished board and `Shift+R` resets at any time.
+- After a round, the wall counts down and a new round starts by itself.
 
 ## Stack
 
@@ -81,6 +83,6 @@ phone page and the projector keys only reset a finished board. Without one,
 | `GET /api/state`        | board state (polled by the projector)     |
 | `POST /api/reveal/<id>` | reveal a tile                             |
 | `POST /api/flag/<id>`   | toggle a flag                             |
-| `POST /api/reset`       | new round (admin only while one is live)  |
+| `POST /api/reset`       | new round (admin only)                    |
 | `GET /admin`            | admin page                                |
 | `POST /api/admin/login` | log in with the admin password            |

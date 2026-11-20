@@ -115,8 +115,7 @@
     if (st.status === "lost" || st.status === "won") {
       $("ov-k").textContent = st.status === "lost" ? "MINE HIT" : "ALL CLEAR";
       $("ov-v").textContent = label;
-      $("ov-s").textContent = `TIME ${fmtTime(st.elapsed)} · PRESS R TO RESET`;
-      overlay.hidden = false;
+      overlay.hidden = false; // its last line is the countdown, kept fresh by tick()
       if (!first && prev.status !== st.status && st.status === "lost") {
         flash.classList.remove("go");
         void flash.offsetWidth;
@@ -130,10 +129,6 @@
   }
 
   // ---------------------------------------------------------------- net
-  async function post(url) {
-    try { await fetch(url, { method: "POST" }); } catch (_) { /* next poll */ }
-  }
-
   async function poll() {
     try {
       const r = await fetch("/api/state", { cache: "no-store" });
@@ -156,21 +151,23 @@
       let e = lastElapsed;
       if (prev.status === "playing") e += (performance.now() - lastFetch) / 1000;
       $("s-time").textContent = fmtTime(e);
+
+      // A finished board restarts on its own; count down to it.
+      if (prev.status === "won" || prev.status === "lost") {
+        let line = `TIME ${fmtTime(prev.elapsed)}`;
+        if (prev.restart_in != null) {
+          const left = prev.restart_in - (performance.now() - lastFetch) / 1000;
+          line += ` · NEXT ROUND IN ${Math.max(0, Math.ceil(left))}`;
+        }
+        if ($("ov-s").textContent !== line) $("ov-s").textContent = line;
+      }
     }
     requestAnimationFrame(tick);
   }
 
   // ---------------------------------------------------------------- input
-  function reset(force) {
-    if (!prev) return;
-    if (force || prev.status !== "playing") post("/api/reset");
-  }
-
-  $("btn-reset").addEventListener("click", () => reset(true));
-
+  // No reset here: the keyboard is within reach of visitors. See /admin.
   document.addEventListener("keydown", (e) => {
-    if (e.key === "r") reset(false);
-    if (e.key === "R") reset(true);
     if (e.key === "f" || e.key === "F") {
       if (document.fullscreenElement) document.exitFullscreen();
       else document.documentElement.requestFullscreen().catch(() => {});
