@@ -81,6 +81,9 @@
       if (s === was && !first) continue;
 
       t.dataset.s = s;
+      // The reveal animation leaves its tile black for as long as the class
+      // stays on. Drop it when the tile goes back under cover for a new round.
+      if (hidden(s)) t.classList.remove("pop");
       const g = t.querySelector(".glyph");
       g.textContent = /^[1-8]$/.test(s) ? s : "";
 

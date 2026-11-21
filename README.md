@@ -65,7 +65,10 @@ Without a password, `/admin` is disabled and nobody can reset by hand.
 - A flagged tile shows a hollow square instead of its QR code, so it cannot be
   scanned again. Flag carefully.
 - If every tile that is left is flagged and one of those flags is wrong, the
-  round is lost: the wall says FAILED and strikes through the wrong flags.
+  round is lost and the wall says FAILED.
+- When a round ends, every mine shows as a black disc on a white tile, flagged
+  or not. The mine that went off is a white disc. A flag left as a square was
+  on a safe tile.
 - After a round, the wall counts down and a new round starts by itself.
 
 ## Stack

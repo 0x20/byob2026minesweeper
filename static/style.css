@@ -150,35 +150,36 @@ html, body {
 /* open zero tile: quiet */
 .tile[data-s="0"] { border-color: var(--line); }
 
-/* flag: hollow square */
+/* flag: hollow square. A wrong flag just stays a square when the round ends. */
 .tile[data-s="f"] .card, .tile[data-s="w"] .card { opacity: 0; }
 .tile[data-s="f"]::before, .tile[data-s="w"]::before {
   content: "";
   width: 28%; height: 28%;
   border: 3px solid var(--fg);
 }
-/* wrong flag: struck through */
-.tile[data-s="w"]::before {
-  background: linear-gradient(to top right, transparent calc(50% - 1.5px), var(--fg) calc(50% - 1.5px), var(--fg) calc(50% + 1.5px), transparent calc(50% + 1.5px));
-}
 
-/* mine: filled disc */
-.tile[data-s="m"]::before {
+/* When the round ends every mine shows, flagged or not: a black disc on a
+   white tile. */
+.tile[data-s="m"],
+:is(body.won, body.lost) .tile[data-s="f"] { background: var(--fg); border-color: var(--fg); }
+.tile[data-s="m"]::before,
+:is(body.won, body.lost) .tile[data-s="f"]::before {
   content: "";
   width: 34%; height: 34%;
+  border: 0;
   border-radius: 50%;
-  background: var(--fg);
+  background: var(--bg);
 }
+/* The pop animation ends on a black tile, which would hide a black disc. */
+.tile.pop[data-s="m"] { animation: none; }
 
-/* the one that went off: inverted */
-.tile[data-s="x"] { background: var(--fg); border-color: var(--fg); }
+/* the one that went off: the other way round, a white disc on a black tile */
 .tile[data-s="x"]::before {
   content: "";
   width: 44%; height: 44%;
   border-radius: 50%;
-  background: var(--bg);
+  background: var(--fg);
 }
-.tile[data-s="x"]::after { display: none; }
 
 /* reveal animation */
 @keyframes pop {
